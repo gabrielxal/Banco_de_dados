@@ -41,6 +41,54 @@ CREATE TABLE inventario (
     FOREIGN KEY (id_produto) REFERENCES tipo_produtos (id_produto)
 );
 
+-- Verificar estoque antes de concluir o pedido
+DELIMITER //
+CREATE TRIGGER verificar_estoque_antes_de_concluir_pedido
+BEFORE UPDATE ON pedidos
+FOR EACH ROW
+BEGIN
+    DECLARE quantidade_estoque INT;
+    DECLARE quantidade_pedida INT;
+    DECLARE id_produto INT;
+    
+    -- Para cada item no pedido
+    DECLARE item_cursor CURSOR FOR
+        SELECT id_produto, quantidade
+        FROM itens_pedido
+        WHERE id_pedido = OLD.id_pedido;
+    
+    OPEN item_cursor;
+    FETCH item_cursor INTO id_produto, quantidade_pedida;
+
+    WHILE @@FETCH_STATUS = 0 DO
+        -- Verificar o estoque disponível para o produto
+        SELECT quantidade INTO quantidade_estoque 
+        FROM inventario 
+        WHERE id_produto = id_produto;
+
+        -- Impedir o update se o estoque não for suficiente
+        IF quantidade_estoque < quantidade_pedida THEN
+            SIGNAL SQLSTATE '45000'
+            SET MESSAGE_TEXT = 'Estoque insuficiente para concluir o pedido';
+        END IF;
+        FETCH item_cursor INTO id_produto, quantidade_pedida;
+    END WHILE;
+    
+    CLOSE item_cursor;
+END;
+//
+
+-- Atualizar Estoque pós pedido
+CREATE TRIGGER atualizar_estoque_apos_pedido
+AFTER INSERT ON itens_pedido
+FOR EACH ROW
+BEGIN
+    UPDATE inventario
+    SET quantidade = quantidade - NEW.quantidade
+    WHERE id_produto = NEW.id_produto;
+END;
+//
+DELIMITER ;
 -- Tabela para registrar pedidos
 CREATE TABLE pedidos (
     id_pedido INT NOT NULL AUTO_INCREMENT,
@@ -53,6 +101,23 @@ CREATE TABLE pedidos (
     FOREIGN KEY (id_cliente) REFERENCES clientes (id_cliente),
     FOREIGN KEY (id_funcionario) REFERENCES funcionarios (id_funcionario)
 );
+
+-- Atualizar Valor Total do Pedido
+DELIMITER //
+
+CREATE TRIGGER atualizar_valor_total_pedido
+AFTER INSERT ON itens_pedido
+FOR EACH ROW
+BEGIN
+    DECLARE valor DECIMAL(10, 2);
+    SET valor = NEW.quantidade * NEW.preco_unitario;
+    UPDATE pedidos
+    SET valor_total = valor_total + valor
+    WHERE id_pedido = NEW.id_pedido;
+END;
+//
+
+DELIMITER ;
 
 -- Tabela de itens do pedido
 CREATE TABLE itens_pedido (
