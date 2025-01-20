@@ -31,6 +31,31 @@ CREATE TABLE membros (
     PRIMARY KEY (id_membro)
 );
 
+-- Automatização para quando atualizar status dos membros
+DELIMITER //
+
+CREATE TRIGGER atualizar_status_membro
+AFTER UPDATE ON emprestimos
+FOR EACH ROW
+BEGIN
+    IF NEW.data_devolucao IS NOT NULL THEN
+        DECLARE livros_em_aberto INT;
+        SELECT COUNT(*) INTO livros_em_aberto 
+        FROM emprestimos 
+        WHERE id_membro = NEW.id_membro AND data_devolucao IS NULL;
+        
+        IF livros_em_aberto = 0 THEN
+            UPDATE membros 
+            SET status_membro = 'Ativo' 
+            WHERE id_membro = NEW.id_membro;
+        END IF;
+    END IF;
+END;
+
+DELIMITER ;
+
+
+
 -- Tabela para empréstimos/devolução
 CREATE TABLE emprestimos (
     id_emprestimo INT NOT NULL AUTO_INCREMENT,
@@ -42,3 +67,28 @@ CREATE TABLE emprestimos (
     FOREIGN KEY (id_membro) REFERENCES membros (id_membro),
     FOREIGN KEY (id_livro) REFERENCES livros (id_livro)
 );
+
+-- Atualização para quando realizar emprestimo e devolução
+DELIMITER //
+
+ALTER TABLE livros ADD COLUMN estoque INT DEFAULT 1;
+CREATE TRIGGER atualizar_estoque_emprestimo
+AFTER INSERT ON emprestimos
+FOR EACH ROW
+BEGIN
+    UPDATE livros 
+    SET estoque = estoque - 1 
+    WHERE id_livro = NEW.id_livro;
+END;
+CREATE TRIGGER atualizar_estoque_devolucao
+AFTER UPDATE ON emprestimos
+FOR EACH ROW
+BEGIN
+    IF NEW.data_devolucao IS NOT NULL THEN
+        UPDATE livros 
+        SET estoque = estoque + 1 
+        WHERE id_livro = NEW.id_livro;
+    END IF;
+END;
+
+DELIMITER ;
